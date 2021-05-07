@@ -7,7 +7,7 @@
 - [ ] the pull request targets the *default* branch of the repository (`develop`)
 - [ ] the code follows the established code style of the repository
   - `npm run prettier:check` passes
-  - `npm run lint:check` passes
+  - `npm run eslint:check` passes
 - [ ] tests are added for the changes I made (if any source code was modified)
 - [ ] documentation added or updated
 - [ ] I have run the project locally and verified that there are no errors

@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest a new feature or idea
-title: 'feature: <your-title-goes-here>'
+title: 'Feature: <your-title-goes-here>'
 labels: 'type: feature, flag: needs discussion'
 assignees: ''
 
