@@ -1,0 +1,126 @@
+name: Micro CICD JAVA Template
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: 'application name'
+        required: true
+        default: 'matrixworld'
+        type: string
+      service:
+        description: 'service name'
+        required: true
+        default: 'micro-template'
+        type: string
+      event_name:
+        description: 'event_name'
+        required: false
+        type: string
+      cluster_name:
+        description: 'cluster name'
+        required: true
+        type: string
+      namespace:
+        description: 'deploy namespace'
+        required: true
+        type: string
+      import_env:
+        description: 'import env names'
+        required: false
+        default: STAGE
+        type: string
+      stage:
+        description: 'stage'
+        required: false
+        default: beta
+        type: string
+      image_tag:
+        description: 'image tag'
+        required: false
+        default: ${{ github.sha }}
+        type: string
+
+
+    secrets:
+      aws_account:
+        required: true
+        description: aws account
+      aws_region:
+        required: true
+        description: aws region
+      aws_access_key_id:
+        required: true
+        description: aws access key id
+      aws_secret_access_key:
+        required: true
+        description: aws secret access key
+env:
+  IMAGE_NAME: '${{ secrets.aws_account }}.dkr.ecr.${{ secrets.aws_region }}.amazonaws.com/matrix-${{ inputs.service }}'
+  IMAGE_TAG: ${{ inputs.image_tag }}
+  STAGE: ${{ inputs.stage }}
+  DEPLOY_NAMESPACE: ${{ inputs.namespace }}
+  IMPORT_ENV_NAMES: ${{ inputs.import_env }}
+
+jobs:
+  build:
+    runs-on: [self-hosted, dind]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: 'gradle'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws_access_key_id }}
+          aws-secret-access-key: ${{ secrets.aws_secret_access_key }}
+          aws-region: ${{ secrets.aws_region }}
+
+      - name: Gradle Build
+        run: |
+          export CODEARTIFACT_AUTH_TOKEN=`aws codeartifact get-authorization-token --domain matrix --domain-owner ${{ secrets.AWS_ACCOUNT }} --query authorizationToken --output text`
+          ./gradlew bootJar
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: docker-build-${{ inputs.service }}
+        run: |
+          docker build  . -t ${IMAGE_NAME}:${IMAGE_TAG}
+          docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+      - name: docker-push-${{ inputs.service }}
+        run: |
+          docker push ${IMAGE_NAME}:${IMAGE_TAG}
+          docker push ${IMAGE_NAME}:latest
+
+  deploy:
+    needs: build
+    runs-on: [self-hosted, dind]
+    steps:
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+      - name: Get CD Tools
+        run: |
+          curl -O https://lwnmengjing.github.io/cd-template/latest/linux_amd64.tar.gz
+          tar -zxvf linux_amd64.tar.gz
+          ./cd-template --namespace=${{ inputs.namespace }} --app=${{ inputs.app }} --service=${{ inputs.service }} --image=${IMAGE_NAME}:${IMAGE_TAG}  --importEnvNames=STAGE --port=50051 --portName=grpc
+
+      - name: Deploy
+        uses: cancue/eks-action@v0.0.2
+        env:
+          aws_access_key_id: ${{ secrets.aws_access_key_id }}
+          aws_secret_access_key: ${{ secrets.aws_secret_access_key }}
+          aws_region: ${{ secrets.aws_region }}
+          cluster_name: ${{ inputs.cluster_name }}
+        with:
+          args: |
+            kubectl apply -f dist -n ${{ inputs.namespace }}
+
